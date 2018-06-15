@@ -16,6 +16,7 @@ from picrust2.util import (system_call_check, get_picrust_project_dir)
 
 def run_minpath_pipeline(inputfile,
                          mapfile,
+                         regroup_mapfile=None,
                          proc=1,
                          out_dir=None,
                          print_cmds=False):
@@ -30,6 +31,13 @@ def run_minpath_pipeline(inputfile,
     # Get list of sample ids.
     samples = [col for col in strat_in.columns
                if col not in ["function", "sequence"]]
+
+    # Regroup functions in input stratified table to different ids if
+    # regroup mapfile is provided.
+    if regroup_mapfile:
+        strat_in = regroup_func_ids(strat_in, regroup_mapfile, proc)
+        regrouped_outfile = path.join(out_dir, "regrouped_infile.tsv")
+        strat_in.to_csv(path_or_buf=regrouped_outfile,  sep="\t", index=False)
 
     # Run minpath wrapper on all samples.
     # Note that input stratified table is subsetted to required columns only.
@@ -67,6 +75,78 @@ def run_minpath_pipeline(inputfile,
     sample_path_abun_strat.reset_index(inplace=True)
 
     return(sample_path_abun_unstrat, sample_path_abun_strat)
+
+
+def regroup_func_ids(strat_df, mapfile, proc):
+    '''Reads in stratified df and mapfile of function ids to new ids. Will
+    return stratified df with new functions ids under column "function".'''
+
+    # Read throw id mapfile and get links between two id sets.
+    func_map = defaultdict(list)
+
+    with open(mapfile, 'r') as in_map:
+        for line in in_map:
+            line = line.rstrip()
+            line_split = line.split()
+            func_map[line_split[0]] += line_split[1].split(",")
+
+    # Get set of all unique functions.
+    functions = list(set(strat_df['function']))
+
+    chunk_size = int(len(functions) / proc)
+
+    function_chunks = [functions[i:i + chunk_size] 
+                      for i in range(0, len(functions), chunk_size)]
+
+    # Loop over all functions in parallel and return pandas dataframe for each
+    # function with regrouped ids (which will are combined together afterwards).
+    raw_new_ids_dfs = Parallel(n_jobs=proc)(delayed(
+                                    convert_func_ids)(func_subset,
+                                                      strat_df,
+                                                      func_map)
+                                    for func_subset in function_chunks)
+
+    # Combine all returned DFs into a single DF.
+    raw_new_ids_combined = pd.concat(raw_new_ids_dfs)
+
+    regrouped_table = pd.pivot_table(raw_new_ids_combined,
+                                     index=["function", "sequence"],
+                                     aggfunc=np.sum)
+
+    regrouped_table.reset_index(inplace=True)
+
+    return(regrouped_table)
+
+
+def convert_func_ids(functions, strat_df, func_map):
+    '''Will return dataframe with all new ids replacing the value in
+    "function" column for each input function.'''
+
+    new_dfs = []
+
+    # Loop over all functions.
+    for func in functions:
+
+        # Get subset of dataframe for this function and ids to regroup by.
+        strat_df_subset = strat_df.loc[strat_df['function'] == func]
+        new_ids = func_map[func]
+
+        # Inititalize empty dataframe to add new rows.
+        new_df = pd.DataFrame(columns=strat_df_subset.columns.values)
+
+        # For each new id to regroup by replace all original function ids with
+        # this new id and add to new df.
+        for new_id in new_ids:
+            new_subset = strat_df_subset.copy()
+            new_subset['function'] = new_id
+            new_df = new_df.append(new_subset)
+
+        new_dfs += [new_df]
+
+    # Concatenate these new dfs together for all input functions.
+    combined_new_df = pd.concat(new_dfs)
+
+    return(combined_new_df)
 
 
 def read_strat_genes(filename):

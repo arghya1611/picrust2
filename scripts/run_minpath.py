@@ -13,7 +13,24 @@ from picrust2.util import make_output_dir, check_files_exist
 
 parser = argparse.ArgumentParser(
 
-    description="Runs MinPath on a table of E.C. numbers",
+    description="Wrapper for MinPath to infer which pathways are present "
+                "given gene family abundances in a sample. Gene families can "
+                "be regrouped to a different gene family or reaction type if "
+                "needed. Typical usage would be to input E.C. numbers and "
+                "regroup them to MetaCyc reations to infer MetaCyc pathways. "
+                "Currently only unstructured pathways are supported. Pathways "
+                "that are called as present are given an abundance based on "
+                "the mean abundance of the top 50% most abundant reactions in "
+                "the pathway. Both straitifed and unstratified pathway "
+                "abundances are output. NOTE: STRATIFIED ABUNDANCES ARE BASED "
+                "ON HOW MUCH THAT PREDICTED GENOME (E.G. SEQUENCE) CONTRIBUTES "
+                "TO THE COMMUNITY-WIDE ABUNDANCE, NOT THE ABUNDANCE OF THE "
+                "PATHWAY BASED ON THE PREDICTED GENES IN THAT GENOME ALONE. In "
+                "other words, a predicted genome might be contributing a lot "
+                "to the community-wide pathway abundance simply because one "
+                "required gene for that pathway is at extremely high abundance "
+                "in that genome even though no other required genes for that "
+                "pathway are present!",
 
     formatter_class=argparse.RawDescriptionHelpFormatter)
 
@@ -27,6 +44,10 @@ parser.add_argument('-m', '--map', metavar='MAP', required=True, type=str,
 parser.add_argument('-o', '--out_prefix', metavar='PREFIX', required=True,
                     type=str, help='Prefix for stratified and unstratified ' +
                                    'pathway abundances.')
+
+parser.add_argument('-r', '--regroup_map', metavar='ID_MAP', required=False, 
+                    type=str, help='Mapfile of ids to regroup (e.g. to ' +
+                                   'regroup E.C. numbers to MetaCyc reactions)')
 
 parser.add_argument('--intermediate', metavar='DIR', type=str, default=None,
                     help='Output folder for intermediate files (wont be ' +
@@ -55,6 +76,7 @@ def main():
 
         unstrat_out, strat_out = run_minpath_pipeline(inputfile=args.input,
                                                       mapfile=args.map,
+                                                      regroup_mapfile=args.regroup_map,
                                                       proc=args.proc,
                                                       out_dir=args.intermediate,
                                                       print_cmds=args.print_cmds)
@@ -62,6 +84,7 @@ def main():
         with TemporaryDirectory() as temp_dir:
                 unstrat_out, strat_out = run_minpath_pipeline(inputfile=args.input,
                                                               mapfile=args.map,
+                                                              regroup_mapfile=args.regroup_map,
                                                               proc=args.proc,
                                                               out_dir=temp_dir,
                                                               print_cmds=args.print_cmds)
